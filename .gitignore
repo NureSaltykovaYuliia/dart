@@ -1,0 +1,11 @@
+# Created by `dart pub`
+.dart_tool/
+build/
+
+# Секрети та локальні налаштування
+.env
+.vscode/
+
+
+# Документація та локальні звіти
+docs/
