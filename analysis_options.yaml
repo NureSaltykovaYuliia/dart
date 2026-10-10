@@ -1,20 +1,29 @@
-# Набір правил: package:lints/recommended.yaml + суворіші налаштування.
+# Статичний аналіз: офіційний набір `recommended` і строгий режим типізації.
 include: package:lints/recommended.yaml
 
 analyzer:
   language:
+    # Заборона неявних приведень, неявного dynamic і «сирих» узагальнених типів.
     strict-casts: true
     strict-inference: true
     strict-raw-types: true
 
 linter:
   rules:
+    # Документація та оголошення
     - public_member_api_docs
+    - type_annotate_public_apis
+    - always_declare_return_types
+    # Незмінність
     - prefer_final_locals
     - prefer_final_in_for_each
-    - prefer_single_quotes
-    - always_declare_return_types
-    - avoid_dynamic_calls
-    - directives_ordering
     - prefer_const_declarations
+    # Стиль
+    - prefer_single_quotes
+    - prefer_relative_imports
+    - directives_ordering
     - unnecessary_lambdas
+    - use_string_buffers
+    - avoid_redundant_argument_values
+    # Безпека типів
+    - avoid_dynamic_calls

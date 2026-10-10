@@ -1,133 +1,137 @@
 import 'package:group_schedule/group_schedule.dart';
 
+/// Година, починаючи з якої лабораторна вважається пізньою.
+const int _lateStartHour = 11;
+
+/// Скільки рядків показувати у вибірках виводу.
+const int _previewRows = 5;
+
+/// Скільки занять показувати в розділі арифметики дат.
+const int _datesPreviewRows = 4;
+
 /// Точка входу: розбирає, перевіряє та агрегує вхідні заняття.
 ///
 /// Необов'язковий аргумент — дата звіту у форматі `РРРР-ММ-ДД`
 /// (за замовчуванням — поточний момент).
 void main(List<String> arguments) {
   final argDate = arguments.firstOrNull;
-  final now =
-      (argDate == null ? null : parseStrictDate(argDate)) ?? DateTime.now();
+  final now = (argDate == null ? null : readIsoDate(argDate)) ?? DateTime.now();
 
-  // 1. Розбір із лічильником-замиканням.
-  final counter = makeCounter();
-  final parsed = rawLessons.map((line) {
-    counter.increment();
-    return (line: line, result: parseLine(line));
-  }).toList();
+  // 1. Розбір: лічильник викликів — замикання над `readLesson`.
+  final reader = countingCalls(readLesson);
+  final decoded = [
+    for (final row in timetableRows) (row: row, result: reader.run(row)),
+  ];
 
   _section('1. Розбір вхідних рядків');
-  print('Оброблено рядків: ${counter.value()}');
-  for (final (:line, :result) in parsed) {
-    if (result case (lesson: null, :final String error)) {
-      print('  ✗ $error\n      ← $line');
+  print('Оброблено рядків: ${reader.calls()}');
+  for (final (:row, :result) in decoded) {
+    if (result case (null, final String error)) {
+      print('  ✗ $error\n      ← $row');
     }
   }
 
-  // 2. Перевірка діапазонів і формату.
+  // 2. Перевірка правил.
   final candidates = [
-    for (final p in parsed)
-      if (p.result.lesson case final Lesson lesson) lesson,
+    for (final d in decoded)
+      if (d.result case (final Lesson lesson, _)) lesson,
   ];
-  _section('2. Перевірка діапазонів');
+  _section('2. Перевірка правил');
   for (final lesson in candidates) {
-    final violations = validateLesson(lesson);
-    if (violations.isNotEmpty) {
-      print('  ${lesson.discipline}:');
-      for (final v in violations) {
-        print('      - $v');
+    final problems = problemsOf(lesson);
+    if (problems.isNotEmpty) {
+      print('  ${lesson.subject}:');
+      for (final p in problems) {
+        print('      - $p');
       }
     }
   }
-  final lessons = candidates.where(isValidLesson).toList();
-  print('Коректних занять: ${lessons.length} з ${rawLessons.length}');
+  final lessons = candidates.where(passesRules).toList();
+  print('Коректних занять: ${lessons.length} з ${timetableRows.length}');
 
-  // 3. Конвеєри: фільтрація, перетворення, згортання.
+  // 3. Запити: відбір, перетворення, агрегування.
   _section('3. Конвеєри обробки');
   print('Лекції:');
-  toScheduleLines(lecturesOnly(lessons)).forEach(_bullet);
+  scheduleLines(ofKind(lessons, kindLecture)).forEach(_bullet);
   print('Заняття в понеділок:');
-  toScheduleLines(lessonsOnDay(lessons, DateTime.monday)).forEach(_bullet);
+  scheduleLines(onWeekday(lessons, DateTime.monday)).forEach(_bullet);
   print(
-    'Аудиторних годин (where → map → fold): ${contactHours(lessons)}, '
-    'з них лабораторних: ${contactHours(lessons, type: typeLab)}',
+    'Аудиторних годин (where → map → fold): ${academicHours(lessons)}, '
+    'з них лабораторних: ${academicHours(lessons, kind: kindLab)}',
   );
-  final stats = pairsStats(lessons);
-  if (stats != null) {
+  final summary = summarizePairs(lessons);
+  if (summary != null) {
     print(
-      'Пар за семестр: усього ${stats.total}, '
-      'середнє ${stats.average.toStringAsFixed(averageFractionDigits)}, '
-      'мін ${stats.min}, макс ${stats.max}',
+      'Пар за семестр: усього ${summary.sum}, '
+      'середнє ${summary.mean.toStringAsFixed(averageDigits)}, '
+      'мін ${summary.fewest}, макс ${summary.most}',
     );
   }
-  print('За типами: ${countByType(lessons)}');
+  print('За типами: ${kindHistogram(lessons)}');
 
   // 4. Групування за дисципліною та конфлікти аудиторій.
   _section('4. Групування за дисципліною');
-  final groups = groupByDiscipline(lessons);
-  final hours = hoursPerGroup(groups);
-  for (final MapEntry(key: discipline, value: items) in groups.entries) {
-    _bullet(describeGroup(discipline, items, hours[discipline] ?? 0));
+  final groups = bySubject(lessons);
+  final hours = hoursOf(groups);
+  for (final MapEntry(key: subject, value: items) in groups.entries) {
+    _bullet(subjectLine(subject, items, hours[subject] ?? 0));
   }
   print('Конфлікти аудиторій:');
-  for (final MapEntry(key: slot, value: items) in roomConflicts(
-    lessons,
-  ).entries) {
-    _bullet('$slot: ${items.map((l) => l.discipline).join(' / ')}');
+  for (final MapEntry(key: slot, value: items) in clashes(lessons).entries) {
+    _bullet('$slot: ${items.map((l) => l.subject).join(' / ')}');
   }
 
   // 5. Сортування за двома критеріями.
   _section('5. Сортування');
   print('За днем і часом ↑, далі за викладачем:');
-  toScheduleLines(sortLessons(lessons)).forEach(_bullet);
+  scheduleLines(arranged(lessons)).forEach(_bullet);
   print('За кількістю пар ↓, далі за днем і часом:');
-  toScheduleLines(
-    sortLessons(
+  scheduleLines(
+    arranged(
       lessons,
-      by: compareByPairs,
-      thenBy: compareByDayAndTime,
-      ascending: false,
-    ).take(5),
+      chain([descending(byPairs), byWeekTime]),
+    ).take(_previewRows),
   ).forEach(_bullet);
 
-  // 6. Фабрика предикатів (замикання).
+  // 6. Фабрики умов (замикання).
   _section('6. Фабрика предикатів');
-  print('Лабораторні, що починаються не раніше 11:00:');
-  final lateLabs = allOf([makeTypeFilter(typeLab), makeStartsFromFilter(11)]);
-  toScheduleLines(lessons.where(lateLabs)).forEach(_bullet);
+  print('Лабораторні, що починаються не раніше $_lateStartHour:00:');
+  final lateLabs = allPass([kindIs(kindLab), startsNotBefore(_lateStartHour)]);
+  scheduleLines(lessons.where(lateLabs)).forEach(_bullet);
 
   // 7. Регулярні вирази та маскування.
   _section('7. Регулярні вирази');
-  for (final teacher in ['Петренко О.В.', 'олійник', 'Бондар С.П']) {
+  for (final name in ['Петренко О.В.', 'олійник', 'Бондар С.П']) {
     _bullet(
-      '$teacher → ${isValidTeacher(teacher) ? 'коректний' : 'некоректний'}, '
-      'маска: ${maskTeacher(teacher)}',
+      '$name → ${isLecturerName(name) ? 'коректний' : 'некоректний'}, '
+      'маска: ${hideSurname(name)}',
     );
   }
   for (final room in ['287', '161и', '9999']) {
+    final wing = wingOf(room);
     _bullet(
-      'ауд.$room → ${isValidRoom(room) ? 'коректна' : 'некоректна'}'
-      '${roomWing(room).isEmpty ? '' : ', корпус «${roomWing(room)}»'}',
+      'ауд.$room → ${isRoomCode(room) ? 'коректна' : 'некоректна'}'
+      '${wing.isEmpty ? '' : ', корпус «$wing»'}',
     );
   }
 
   // 8. Арифметика дат.
   _section('8. Арифметика дат');
-  for (final l in sortLessons(lessons).take(4)) {
+  for (final l in arranged(lessons).take(_datesPreviewRows)) {
     _bullet(
-      '${l.discipline} (${l.type}): запис внесено ${ageInDays(l, now)} дн. '
-      'тому, наступне — ${formatDate(nextOccurrence(l, now))} '
-      '(через ${daysUntilNext(l, now)} дн.), '
-      '${formatTime(l.start)}–${formatTime(endTime(l))}'
-      '${isUpcoming(l, now) ? ' — найближчим часом' : ''}',
+      '${l.subject} (${l.kind}): запис внесено ${daysSinceAdded(l, now)} дн. '
+      'тому, наступне — ${isoDay(nextSession(l, now))} '
+      '(через ${daysToNextSession(l, now)} дн.), '
+      '${hhmm(l.startMinutes)}–${hhmm(finishMinutes(l))}'
+      '${isSoon(l, now) ? ' — найближчим часом' : ''}',
     );
   }
-  final missing = findByDiscipline(lessons, 'Астрономія');
-  print('Пошук «Астрономія»: ${missing?.teacher ?? 'не знайдено'}');
+  final missing = findSubject(lessons, 'Астрономія');
+  print('Пошук «Астрономія»: ${missing?.lecturer ?? 'не знайдено'}');
 
   // 9. Звіт.
   _section('9. Звіт');
-  print(buildReport(lessons, now: now));
+  print(renderTimetable(lessons, at: now));
 }
 
 /// Друкує заголовок розділу [title].
