@@ -1,0 +1,11 @@
+name: group_schedule_oop
+description: Об'єктно-орієнтована модель розкладу занять групи (ЛР2).
+version: 2.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.2
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.6
