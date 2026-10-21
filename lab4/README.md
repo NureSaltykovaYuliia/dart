@@ -1,21 +1,25 @@
-# Розклад занять групи — ЛР 4: застосунок і HTTP-сервіс (group_schedule_app)
+# ЛР 4 — Застосунок і HTTP-сервіс (group_schedule_app)
 
-Лабораторна робота №4, варіант 4. Проєкт набув канонічної структури пакета
-(`bin/` — лише точки входу, `lib/src/` — реалізація, `lib/group_schedule_app.dart`
-— фасад), отримав роботу з файлами та JSON, запит до зовнішнього REST API і
-власний HTTP-сервіс на `shelf`.
+Четверта лабораторна, варіант 4. Проєкт отримав стандартну структуру
+Dart-пакета (`bin/` — точки входу, `lib/src/` — реалізація,
+`lib/group_schedule_app.dart` — фасад), а також:
 
-## Що це
+* роботу з файлами: JSON і CSV;
+* запит до зовнішнього REST API;
+* власний HTTP-сервіс на `shelf`.
 
-* **Консольний застосунок** `group_schedule_app` з командами `import`, `list`,
-  `stats`, `holidays`.
-* **HTTP-сервіс** (`bin/server.dart`) з маршрутами `GET /items`,
-  `GET /items/<id>`, `POST /items`.
+## Що це таке
+
+* **Консольний застосунок** з командами `import`, `list`, `stats`,
+  `holidays`.
+* **HTTP-сервіс** `bin/server.dart`: `GET /items` (фільтри `kind`, `day`,
+  `q`), `GET /items/<id>` (404, якщо немає), `POST /items` (400 на
+  некоректне тіло, 409 на дублікат).
 * **Зовнішнє API** — відкритий сервіс державних свят
-  <https://date.nager.at> (ключ не потрібен): команда `holidays` показує, які
-  заняття не відбудуться через свято.
+  <https://date.nager.at>, ключ не потрібен. `holidays` показує, скільки
+  занять випадає на кожне свято.
 
-## Як запустити
+## Запуск
 
 ```bash
 dart pub get
@@ -27,92 +31,100 @@ dart run bin/group_schedule_app.dart holidays --year 2026
 
 dart run bin/server.dart 8080          # сервіс на http://127.0.0.1:8080
 curl "http://127.0.0.1:8080/items?day=1"
+
+dart analyze
+dart test                              # 30 тестів
 ```
 
-Коди завершення: `0` — успіх, `64` — помилка аргументів, `65` — пошкоджені
-дані, `66` — файл не знайдено, `69` — сервіс свят недоступний. Помилки
-виводяться в `stderr`.
+Коди завершення: `0` — усе добре, `64` — неправильні аргументи, `65` —
+пошкоджені дані, `66` — файл не знайдено, `69` — сервіс свят недоступний.
+Повідомлення про помилки йдуть у `stderr`.
 
-Компіляція в машинний код:
+Збірка у виконуваний файл:
 
 ```bash
 dart compile exe bin/group_schedule_app.dart -o build/group_schedule_app.exe
 ```
 
-## Результати перевірок
+## Як влаштований код
 
-```text
-$ dart analyze
-Analyzing lab4...
-No issues found!
-
-$ dart test
-00:01 +30: All tests passed!
-```
-
-## Розподіл між `bin/` і `lib/`
-
-| Місце | Що містить |
+| Місце | Що в ньому |
 |---|---|
-| `bin/group_schedule_app.dart` | `exitCode = await runCli(args, CliContext(...))` |
-| `bin/server.dart` | читання даних і запуск `shelf_io.serve` |
-| `lib/group_schedule_app.dart` | фасад з `export` |
-| `lib/src/lesson.dart`, `weekday.dart`, `time_slot.dart`, `rules.dart`, … | модель з ЛР 2, доповнена `toJson`/`fromJson` |
-| `lib/src/storage.dart` | JSON-файл (`p.join`) і потокове читання CSV (`openRead`) |
+| `bin/group_schedule_app.dart` | `exitCode = await runCli(arguments, CliContext(...))` |
+| `bin/server.dart` | завантаження даних і запуск `shelf_io.serve` |
+| `lib/group_schedule_app.dart` | фасад із `export` |
+| `lib/src/lesson.dart`, `weekday.dart`, `time_slot.dart`, `rules.dart`, … | модель з ЛР 2 + `toJson` / `fromJson` |
+| `lib/src/storage.dart` | JSON-файл (`p.join`), потокове читання CSV |
 | `lib/src/holidays.dart` | клієнт REST API, три рівні відмов |
-| `lib/src/cli.dart` | `args`: команди, опції, довідка, коди завершення |
-| `lib/src/server.dart` | маршрути, `Middleware`, відповіді JSON |
-| `test/` | 30 тестів |
+| `lib/src/cli.dart` | команди й опції (`args`), довідка, коди завершення |
+| `lib/src/server.dart` | маршрути, `Middleware` журналювання, JSON-відповіді |
+| `data/` | вхідні `timetable.csv` і `lessons.json` |
+| `test/` | 30 тестів: CLI, свята, серіалізація, сервер, сховище |
 
-Логіку не можна тримати в `bin/`: код звідти неможливо імпортувати, отже й
-протестувати. Тому `runCli` і `buildHandler` — у `lib/`, а в `bin/` лише виклик.
+Логіку не можна тримати в `bin/`: код звідти не можна підключити, а отже
+й протестувати. Тому `runCli` і `buildHandler` лежать у `lib/`, а `bin/` —
+лише виклик.
 
-## Залежності та альтернативи
+## Чому така структура й такі типи
 
-| Пакет | Навіщо | Альтернатива і чому не вона |
-|---|---|---|
-| `args` | команди, опції, довідка | ручний розбір `List<String>`: більше коду й помилок; `cli_script` — зайва складність |
-| `path` | `p.join` для шляхів між ОС | конкатенація з `/` ламається на Windows |
-| `http` | `http.Client` для GET, `MockClient` для тестів | `dart:io HttpClient` — нижчий рівень, ручне кодування тіла; `dio` — важча залежність |
-| `shelf`, `shelf_router` | обробники, `Middleware`, маршрути | `dart_frog`/`serverpod` — фреймворки, що приховують те, що вимагає вивчити робота |
-| `test` (dev) | тести; у `dev_dependencies`, бо потрібен лише розробнику | — |
-| `lints` (dev) | правила `dart analyze` | `flutter_lints` — для Flutter |
+**Консольний інтерфейс — функція `runCli(arguments, CliContext)`.** Потоки
+виводу й HTTP-клієнт передаються ззовні, тому в тестах підставляються
+буфер і підроблений клієнт, і програму можна перевірити без запуску
+процесу чи реальної мережі. *Альтернатива:* звертатися до `stdout` і
+створювати `http.Client` прямо в коді — тоді тест вийшов би на реальну
+мережу.
 
-`dart pub deps`: усього 53 пакети (7 прямих, решта транзитивні, більшість — з
-`test` і `shelf`). `dart pub outdated`: «Found no outdated packages» —
-оновлювати нічого. `pubspec.lock` закомічено, бо це застосунок, а не бібліотека.
+**Три рівні відмов мережі — запечатана ієрархія `HolidayFailure`.**
+Успішний `await` не означає успішний запит, тому статус і тіло
+перевіряються окремо:
 
-## Мережа: три рівні відмов
-
-| Рівень | Виняток | Поведінка |
+| Що сталося | Виняток | Результат |
 |---|---|---|
 | немає з'єднання | `SocketException`, `ClientException`, `TimeoutException` → `NoConnection` | повідомлення в `stderr`, код 69 |
-| статус не 2xx | `BadStatus(statusCode)` | те саме |
+| код не 2xx | `BadStatus(statusCode)` | те саме, у тексті код відповіді |
 | хибне тіло | `FormatException` → `BadBody` | те саме |
 
-`http.Client` створюється фабрикою контексту, передається в `HolidayClient` і
-закривається у `finally`. У тестах його підміняє `MockClient`; справжня мережа
-в тестах не використовується.
+Клієнт, створений командою, закривається у `finally`.
 
-## Рішення щодо JSON
+**JSON — вручну, без кодогенерації.** Результат `jsonDecode` має тип
+`dynamic`, тому його одразу перетворюють на модель; кожне поле читає
+допоміжна `_field<T>`, яка перевіряє тип (`value is T`) і кидає
+`LessonFormatException` з назвою поля. *Альтернатива:* кодогенерація
+(`json_serializable`) — тут зайва для однієї моделі з кількома полями.
 
-`toJson`/`fromJson` написано вручну; поля читає `_field<T>`, що явно
-перевіряє тип (`value is T`) і кидає `LessonFormatException`. Код не
-генерується. `jsonDecode` повертає `dynamic`, тому результат одразу
-перетворюється на модель.
+**CSV читається потоком** (`openRead()` → `utf8.decoder` →
+`LineSplitter`), а не цілим файлом у пам'ять. Рядки, що не розбираються
+або порушують правила, потрапляють у список відхилених із номером рядка.
+Тест створює файл на 20 002 рядки.
 
-## `!`, `late`, `dynamic`
+**Ідентифікатор заняття** `Дисципліна/День/Час` містить `/`, тому в URL
+його треба кодувати (`Uri.encodeComponent`). `shelf_router` не декодує
+параметр, тому обробник сам викликає `Uri.decodeComponent`.
 
-* `!` і `dynamic` у коді не вживаються.
-* `late` — лише в тестах (`late Directory dir; late StringBuffer out; …`):
-  змінні ініціалізуються в `setUp` перед кожним тестом.
-* `as` — лише в тестах: `jsonDecode(...) as Map<String, Object?>` та
-  `as List<Object?>` для розбору відповіді; у `lib/` явні перевірки `is`.
+## Залежності
+
+`dart pub deps`: усього 53 пакети, 7 прямих (їх видно в `pubspec.yaml`),
+решта — транзитивні (переважно від `test` і `shelf`). `dart pub outdated`:
+«Found no outdated packages». `pubspec.lock` закомічено, бо це застосунок,
+а не бібліотека.
+
+| Пакет | Навіщо | Альтернатива |
+|---|---|---|
+| `args` | команди, опції, автоматична довідка, `allowed` для перевірки значень `--kind` і `--day` | ручний розбір `List<String>` — більше коду й помилок |
+| `path` | `p.join` — шляхи, що працюють на будь-якій ОС | склеювання з `/` ламається на Windows |
+| `http` | `http.Client` для GET-запиту; `MockClient` для тестів без мережі | `dart:io HttpClient` — нижчий рівень; `dio` — важча залежність |
+| `shelf`, `shelf_router` | обробники запитів, `Middleware`, маршрути `/items/<id>` | `dart_frog`, `serverpod` — фреймворки, що приховують механіку; саме її й треба було вивчити |
+| `test` (dev) | тести; лише для розробки, тому в `dev_dependencies` | — |
+| `lints` (dev) | правила `dart analyze` | `flutter_lints` — для Flutter |
+
+## `!`, `late`, `dynamic`, `as`
+
+У `lib/` немає `!`, `dynamic` і `as`: замість приведення типів — явні
+перевірки `is`. У тестах `late` (`late Directory dir;`, `late
+StringBuffer out;`) ініціалізується в `setUp`, а `as` потрібен для розбору
+відповіді (`jsonDecode(...) as Map<String, Object?>`).
 
 ## Відомі обмеження
 
-* Ідентифікатор заняття `Дисципліна/День/Час` містить `/`, тому в URL його
-  треба кодувати (`Uri.encodeComponent`). `shelf_router` не декодує
-  параметр, тому обробник викликає `Uri.decodeComponent` сам.
-* Сервіс зберігає дані в JSON-файл після кожного `POST`; паралельних записів
-  не захищає (навчальний рівень).
+* Сервіс зберігає дані в JSON-файл після кожного успішного `POST` і не
+  захищає від паралельних записів. Для навчальної роботи цього достатньо.
